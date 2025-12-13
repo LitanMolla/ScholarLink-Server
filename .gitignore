@@ -1,2 +1,7 @@
 .env
 node_modules
+firebaseAdmin.js
+serviceAccountKey.json
+bk.js
+.vercel
+.env*.local
