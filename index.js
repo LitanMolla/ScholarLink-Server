@@ -16,12 +16,66 @@ const stripe = Stripe(process.env.STRIPE_SECRET_KEY);
 app.use(cors())
 app.use(express.json())
 
-app.get('/', (req, res) => {
-    res.send('Hello World!')
-})
+app.get("/", (req, res) => {
+    res.status(200).json({
+        success: true,
+        project: "ScholarLink Server API",
+        version: "1.0.0",
+        description: "Scholarship Management Backend API",
+        baseUrl: "https://server-scholar-link.vercel.app",
+        endpoints: {
+            auth: {
+                note: "Authentication handled via Firebase ID Token",
+            },
+
+            users: {
+                create: "POST /users",
+                getByEmail: "GET /users/:email",
+                getAll: "GET /users?search=&page=&limit=",
+            },
+
+            scholarships: {
+                getAll: "GET /scholarships?search=&category=&country=&sortBy=&page=&limit=",
+                getTop: "GET /top-scholarships",
+                getSingle: "GET /scholarships/:id",
+                create: "POST /scholarships (Admin)",
+                update: "PATCH /scholarships/:id (Admin)",
+                delete: "DELETE /scholarships/:id (Admin)",
+                adminList: "GET /admin/scholarships?search=&page=&limit=",
+            },
+
+            applications: {
+                createOrUpdate: "POST /applications",
+                getAllOrByEmail: "GET /applications?email=",
+                getSingle: "GET /applications/:id",
+                updateStatus: "PATCH /applications/:id",
+                deletePending: "DELETE /applications/:id",
+            },
+
+            reviews: {
+                add: "POST /reviews",
+                getAll: "GET /reviews",
+                getByScholarship: "GET /reviews?scholarshipId=",
+                getMyReviews: "GET /my-reviews?email=",
+                update: "PATCH /reviews/:id",
+                delete: "DELETE /reviews/:id",
+            },
+
+            payments: {
+                stripeCheckout: "POST /create-checkout-session",
+            },
+
+            adminAnalytics: {
+                stats: "GET /admin/analytics (Admin)",
+            },
+        },
+        message: "Use appropriate HTTP method and Authorization header where required.",
+    });
+});
+
 const verifyFirebaseToken = async (req, res, next) => {
     const authHeader = req.headers.authorization;
-    console.log(req.headers.authorization)
+    // console.log(req.headers.authorization)
     if (!authHeader) {
         return res.status(401).send({ message: "Unauthorized" });
     }
@@ -34,6 +88,7 @@ const verifyFirebaseToken = async (req, res, next) => {
         return res.status(401).send({ message: "Unauthorized" });
     }
 };
+
 const client = new MongoClient(uri, {
     serverApi: {
         version: ServerApiVersion.v1,
@@ -51,6 +106,58 @@ const run = async () => {
         const scholarshipsCollections = database.collection('scholarships')
         const applicationsCollections = database.collection('applications');
         const reviewsCollections = database.collection('reviews');
+
+        // miidleware
+        const verifyAdmin = async (req, res, next) => {
+            try {
+                const email = req.user?.email;
+                if (!email) return res.status(401).send({ message: "Unauthorized" });
+
+                const user = await userCollections.findOne({ email });
+
+                if (!user || user.role !== "Admin") {
+                    return res.status(403).send({ message: "Forbidden: Admin only" });
+                }
+
+                next();
+            } catch (error) {
+                res.status(500).send({ message: error.message });
+            }
+        };
+        const verifyModerator = async (req, res, next) => {
+            try {
+                const email = req.user?.email;
+                if (!email) return res.status(401).send({ message: "Unauthorized" });
+
+                const user = await userCollections.findOne({ email });
+
+                if (!user || user.role !== "Moderator") {
+                    return res.status(403).send({ message: "Forbidden: Moderator only" });
+                }
+
+                next();
+            } catch (error) {
+                res.status(500).send({ message: error.message });
+            }
+        };
+        const verifyModeratorOrAdmin = async (req, res, next) => {
+            try {
+                const email = req.user?.email;
+                if (!email) return res.status(401).send({ message: "Unauthorized" });
+
+                const user = await userCollections.findOne({ email });
+
+                if (!user || (user.role !== "Moderator" && user.role !== "Admin")) {
+                    return res.status(403).send({ message: "Forbidden" });
+                }
+
+                next();
+            } catch (error) {
+                res.status(500).send({ message: error.message });
+            }
+        };
+        // miidleware end
+
         // users add to db
         app.post('/users', async (req, res) => {
             const newUser = req.body
@@ -526,7 +633,7 @@ const run = async () => {
             }
         });
         // Get scholarships (admin list + search + pagination)
-        app.get("/admin/scholarships", async (req, res) => {
+        app.get("/admin/scholarships", verifyFirebaseToken, verifyAdmin, async (req, res) => {
             let { search = "", page = 1, limit = 10 } = req.query;
             page = parseInt(page) || 1;
             limit = parseInt(limit) || 10;
@@ -572,9 +679,8 @@ const run = async () => {
             }
         });
         // ✅ Delete scholarship
-        app.delete("/scholarships/:id", async (req, res) => {
+        app.delete("/scholarships/:id", verifyFirebaseToken, async (req, res) => {
             const { id } = req.params;
-
             try {
                 const result = await scholarshipsCollections.deleteOne({ _id: new ObjectId(id) });
                 res.status(200).json({ success: true, data: result });
@@ -627,7 +733,7 @@ const run = async () => {
             }
         });
         // analytics
-        app.get("/admin/analytics", verifyFirebaseToken, async (req, res) => {
+        app.get("/admin/analytics", verifyFirebaseToken, verifyAdmin, async (req, res) => {
             try {
                 const totalUsers = await userCollections.countDocuments();
                 const totalScholarships = await scholarshipsCollections.countDocuments();
