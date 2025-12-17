@@ -692,7 +692,7 @@ const run = async () => {
         // all user
         app.get("/users", async (req, res) => {
             try {
-                let { search = "", page = 1, limit = 10 } = req.query;
+                let { search = "", role = "all", page = 1, limit = 10 } = req.query;
 
                 page = parseInt(page) || 1;
                 limit = parseInt(limit) || 10;
@@ -700,12 +700,15 @@ const run = async () => {
 
                 const filter = {};
 
+                // ✅ Role filter (Student / Moderator / Admin)
+                if (role && role !== "all") {
+                    filter.role = role;
+                }
+
+                // ✅ Search filter (name/email)
                 if (search && search.trim() !== "") {
                     const regex = new RegExp(search.trim(), "i");
-                    filter.$or = [
-                        { name: { $regex: regex } },
-                        { email: { $regex: regex } },
-                    ];
+                    filter.$or = [{ name: { $regex: regex } }, { email: { $regex: regex } }];
                 }
 
                 const [items, total] = await Promise.all([
@@ -732,6 +735,7 @@ const run = async () => {
                 res.status(500).json({ success: false, message: error.message });
             }
         });
+
         // analytics
         app.get("/admin/analytics", verifyFirebaseToken, verifyAdmin, async (req, res) => {
             try {
@@ -780,6 +784,18 @@ const run = async () => {
                     .toArray();
 
                 res.status(200).json({ success: true, data: reviews });
+            } catch (error) {
+                res.status(500).json({ success: false, message: error.message });
+            }
+        });
+        // delete user
+        app.delete("/users/:id", async (req, res) => {
+            try {
+                const id = req.params.id;
+
+                const result = await userCollections.deleteOne({ _id: new ObjectId(id) });
+
+                res.status(200).json({ success: true, data: result });
             } catch (error) {
                 res.status(500).json({ success: false, message: error.message });
             }
